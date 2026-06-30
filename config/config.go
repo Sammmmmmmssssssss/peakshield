@@ -27,6 +27,10 @@ type Config struct {
 	// Example: "http://legacy.gov.in:9090"
 	TargetURL string
 
+	// InsecureSkipVerify skips TLS certificate verification when connecting to the
+	// backend. Essential for government servers with expired or self-signed certs.
+	InsecureSkipVerify bool
+
 	// ── Server-side Timeouts ─────────────────────────────────────────────────
 	// These govern the net/http.Server's built-in timeout machinery.
 	// They are distinct from the backend (transport) timeouts below.
@@ -120,6 +124,9 @@ func Load() (*Config, error) {
 	// ── Network ──────────────────────────────────────────────────────────────
 	cfg.ListenAddr = envString("PEAKSHIELD_LISTEN", ":8080")
 	cfg.TargetURL = envString("PEAKSHIELD_TARGET", "http://localhost:9090")
+	if cfg.InsecureSkipVerify, err = envBool("PEAKSHIELD_INSECURE_SKIP_VERIFY", false); err != nil {
+		return nil, fmt.Errorf("PEAKSHIELD_INSECURE_SKIP_VERIFY: %w", err)
+	}
 
 	// ── Server-side Timeouts ──────────────────────────────────────────────────
 	if cfg.ReadTimeout, err = envDuration("PEAKSHIELD_READ_TIMEOUT", 10*time.Second); err != nil {
@@ -281,4 +288,18 @@ func envInt(key string, def int) (int, error) {
 		return 0, fmt.Errorf("invalid integer %q: %w", v, err)
 	}
 	return i, nil
+}
+
+// envBool parses a boolean string ("true", "false", "1", "0").
+// Returns def if the variable is unset; error if present but unparseable.
+func envBool(key string, def bool) (bool, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return def, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("invalid boolean %q: %w", v, err)
+	}
+	return b, nil
 }

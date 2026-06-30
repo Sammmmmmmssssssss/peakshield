@@ -28,6 +28,7 @@
 package proxy
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -194,6 +195,10 @@ func New(cfg *config.Config) (*ReverseProxy, error) {
 		MaxIdleConnsPerHost: 256,
 		MaxConnsPerHost:     0, // no cap; WaitingRoom enforces backend concurrency
 		IdleConnTimeout:     90 * time.Second,
+
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: cfg.InsecureSkipVerify,
+		},
 
 		// Set 1 second below BackendTimeout so per-request context deadline wins.
 		// This ensures writeError() runs (structured JSON) rather than the
