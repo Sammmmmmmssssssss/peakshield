@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -26,13 +27,23 @@ func main() {
 	log.Println("Initializing PeakShield Reverse Proxy...")
 
 	// 1. Load Configuration
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// 2. Initialize Core Modules
-	rl := ratelimiter.NewTokenBucket(cfg)
+	rl := ratelimiter.New(ctx, cfg)
 	wr := waitingroom.New(cfg)
 	st := stripper.New(cfg, wr.ActiveRequests)
-	prx := proxy.New(cfg)
+	
+	prx, err := proxy.New(cfg)
+	if err != nil {
+		log.Fatalf("Failed to initialize proxy: %v", err)
+	}
 
 	// 3. Setup Internal Stats Endpoint
 	mux := http.NewServeMux()
@@ -59,14 +70,24 @@ func main() {
 		json.NewEncoder(w).Encode(stats)
 	})
 
+	// Rate Limiter wrapper
+	rlMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				ip = r.RemoteAddr
+			}
+			if !rl.Allow(ip) {
+				http.Error(w, "429 Too Many Requests", http.StatusTooManyRequests)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+
 	// 4. Build Middleware Chain for the Proxy
-	// Execution Sequence:
-	//   1. rl.Middleware (Rate Limiter: Drop abusive IPs immediately)
-	//   2. wr.Middleware (Waiting Room: Circuit breaker & queuing)
-	//   3. st.Middleware (Stripper: Intercept responses if overloaded)
-	//   4. prx           (Proxy: Forward to legacy backend)
 	proxyHandler := middleware.Chain(prx,
-		rl.Middleware,
+		rlMiddleware,
 		wr.Middleware,
 		st.Middleware,
 	)
@@ -76,7 +97,7 @@ func main() {
 
 	// 5. Configure Global HTTP Server
 	server := &http.Server{
-		Addr:    ":" + cfg.ListenPort,
+		Addr:    cfg.ListenAddr,
 		Handler: mux,
 		// Explicit timeouts to prevent Slowloris attacks and connection leaks
 		ReadTimeout:  10 * time.Second,
@@ -89,7 +110,7 @@ func main() {
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("PeakShield active and listening on port %s (Target Backend: %s)", cfg.ListenPort, cfg.BackendURL)
+		log.Printf("PeakShield active and listening on %s (Target Backend: %s)", cfg.ListenAddr, cfg.TargetURL)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}
@@ -100,10 +121,10 @@ func main() {
 	log.Println("\nReceived termination signal. Shutting down PeakShield gracefully...")
 
 	// 15-second grace period for in-flight requests and waiting room to drain
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer shutdownCancel()
 
-	if err := server.Shutdown(ctx); err != nil {
+	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("Graceful shutdown failed: %v", err)
 	}
 
