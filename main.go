@@ -70,7 +70,7 @@ func main() {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(stats)
+		_ = json.NewEncoder(w).Encode(stats)
 	})
 
 	// Add Prometheus Metrics Endpoint

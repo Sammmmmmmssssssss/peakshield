@@ -120,7 +120,7 @@ func (s *Stripper) Middleware(next http.Handler) http.Handler {
 
 			// Write headers and the modified body downstream
 			w.WriteHeader(sw.status)
-			w.Write(outBuf.Bytes())
+			_, _ = w.Write(outBuf.Bytes())
 		}
 	})
 }

@@ -512,7 +512,7 @@ func (l *Limiter) runGC() {
 		// Release the toEvict slice back to the GC immediately.
 		// We do not pool it because GC sweeps are infrequent and the slice
 		// is small — pooling would add complexity for negligible benefit.
-		toEvict = toEvict[:0]
+		// is small — pooling would add complexity for negligible benefit.
 	}
 
 	if totalEvicted > 0 {

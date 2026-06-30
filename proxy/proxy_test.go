@@ -12,15 +12,7 @@ import (
 	"peakshield/config"
 )
 
-// mockWaitingRoom implements the minimum interface required for tests
-type mockWaitingRoom struct {
-	handled int
-}
 
-func (m *mockWaitingRoom) ActiveRequests() int64 { return 0 }
-func (m *mockWaitingRoom) Enter() bool           { return true }
-func (m *mockWaitingRoom) Leave()                {}
-func (m *mockWaitingRoom) AddWaitTime(d time.Duration) {}
 
 func TestReverseProxy_HopByHopHeaders(t *testing.T) {
 	cfg := &config.Config{
@@ -44,7 +36,7 @@ func TestReverseProxy_HopByHopHeaders(t *testing.T) {
 		// Check X-Forwarded-For handling
 		w.Header().Set("X-Received-XFF", r.Header.Get("X-Forwarded-For"))
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer backend.Close()
 
@@ -101,7 +93,10 @@ func TestReverseProxy_BackendError(t *testing.T) {
 		t.Errorf("Expected 502 Bad Gateway for unreachable backend, got %d", res.StatusCode)
 	}
 
-	body, _ := io.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("Failed to read body: %v", err)
+	}
 	if !strings.Contains(string(body), "backend_error") {
 		t.Errorf("Expected body to contain 'backend_error', got %s", body)
 	}
@@ -167,7 +162,10 @@ func TestReverseProxy_ClientDisconnect(t *testing.T) {
 
 	res := w.Result()
 	// Should not have written anything (status code defaults to 200 in httptest.Recorder, but body should be empty)
-	body, _ := io.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("Failed to read body: %v", err)
+	}
 	if len(body) > 0 {
 		t.Errorf("Expected empty response on client disconnect, got %s", body)
 	}

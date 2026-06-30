@@ -122,7 +122,7 @@ func TestHTMLStripper_RealResponse(t *testing.T) {
 
 	frontend, backend := setupIntegrationTest(t, cfg, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(rawHTML))
+		_, _ = w.Write([]byte(rawHTML))
 	})
 	defer frontend.Close()
 	defer backend.Close()
@@ -163,7 +163,7 @@ func TestWaitingRoom_Queueing(t *testing.T) {
 
 	// 1st request enters backend
 	go func() {
-		client.Get(frontend.URL)
+		_, _ = client.Get(frontend.URL)
 	}()
 	<-backendEntered // Ensure it's in the backend
 
@@ -171,7 +171,10 @@ func TestWaitingRoom_Queueing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	req, _ := http.NewRequestWithContext(ctx, "GET", frontend.URL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", frontend.URL, nil)
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("Failed to queue request: %v", err)
@@ -182,7 +185,10 @@ func TestWaitingRoom_Queueing(t *testing.T) {
 		t.Errorf("Expected 503 Waiting Room, got %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("Failed to read body: %v", err)
+	}
 	if !strings.Contains(string(body), "queue position was") && !strings.Contains(string(body), "High Traffic") {
 		t.Errorf("Expected waiting room HTML, got %s", string(body))
 	}
