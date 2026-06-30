@@ -1,0 +1,6 @@
+apiVersion: v2
+name: peakshield
+description: A high-performance, zero-dependency rate limiter and reverse proxy
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
