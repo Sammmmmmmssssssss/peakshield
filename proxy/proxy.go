@@ -28,11 +28,12 @@
 package proxy
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -266,8 +267,8 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Step 1: Build outbound request.
 	outReq, err := p.buildBackendRequest(r)
 	if err != nil {
-		log.Printf("[proxy] request_build_failed method=%s path=%s err=%v", r.Method, r.URL.Path, err)
-		p.writeError(w, http.StatusBadGateway, "request_build_failed", err.Error())
+		slog.Error("request_build_failed", "method", r.Method, "path", r.URL.Path, "err", err)
+		p.writeError(w, r, p.cfg.TargetURL, http.StatusBadGateway, "request_build_failed", err.Error())
 		return
 	}
 
@@ -283,12 +284,11 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Case B — genuine backend error: network unreachable, connection refused,
 		// TLS failure, ResponseHeaderTimeout fired, etc. Write structured JSON.
 		if r.Context().Err() != nil {
-			log.Printf("[proxy] client_disconnect_before_response method=%s path=%s", r.Method, r.URL.Path)
+			slog.Warn("client_disconnect_before_response", "method", r.Method, "path", r.URL.Path)
 			return
 		}
-		log.Printf("[proxy] backend_error method=%s path=%s backend=%s err=%v",
-			r.Method, r.URL.Path, p.cfg.TargetURL, err)
-		p.writeError(w, http.StatusBadGateway, "backend_error", "upstream server did not respond in time")
+		slog.Error("backend_error", "method", r.Method, "path", r.URL.Path, "backend", p.cfg.TargetURL, "err", err)
+		p.writeError(w, r, p.cfg.TargetURL, http.StatusBadGateway, "backend_error", "upstream server did not respond in time")
 		return
 	}
 
@@ -334,8 +334,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if copyErr != nil && r.Context().Err() == nil {
 		// Only log genuine write errors, not the "write: broken pipe" that
 		// occurs when a client disconnects mid-stream (that is r.Context().Err() != nil).
-		log.Printf("[proxy] body_stream_error bytes_written=%d path=%s err=%v",
-			written, r.URL.Path, copyErr)
+		slog.Error("body_stream_error", "bytes_written", written, "path", r.URL.Path, "err", copyErr)
 	}
 }
 
@@ -463,7 +462,11 @@ func (p *ReverseProxy) buildBackendRequest(r *http.Request) (*http.Request, erro
 // Always sets X-PeakShield-Error: <errType> so monitoring systems can
 // distinguish PeakShield-generated 502/504 errors from backend-generated ones
 // using a simple header match — no response body parsing required.
-func (p *ReverseProxy) writeError(w http.ResponseWriter, statusCode int, errType, detail string) {
+//
+// Logging is centralized here to correlate error rates.
+func (p *ReverseProxy) writeError(w http.ResponseWriter, req *http.Request, backendURL string, statusCode int, errType, detail string) {
+	slog.Error("error_response", "status", statusCode, "type", errType, "detail", detail, "backend", backendURL)
+
 	payload := ErrorResponse{
 		Error:   errType,
 		Code:    statusCode,
@@ -486,9 +489,6 @@ func (p *ReverseProxy) writeError(w http.ResponseWriter, statusCode int, errType
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
 	_, _ = w.Write(body)
-
-	log.Printf("[proxy] error_response status=%d type=%s detail=%q backend=%s",
-		statusCode, errType, detail, p.cfg.TargetURL)
 }
 
 // copyResponseHeaders copies response headers from the backend (src) to the

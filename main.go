@@ -3,7 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -21,15 +22,15 @@ import (
 )
 
 func main() {
-	// Configure global standard logger
-	log.SetOutput(os.Stdout)
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-	log.Println("Initializing PeakShield Reverse Proxy...")
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+	slog.Info("Initializing PeakShield Reverse Proxy...")
 
 	// 1. Load Configuration
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		slog.Error("Failed to load configuration", "err", err)
+		os.Exit(1)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -42,7 +43,8 @@ func main() {
 	
 	prx, err := proxy.New(cfg)
 	if err != nil {
-		log.Fatalf("Failed to initialize proxy: %v", err)
+		slog.Error("Failed to initialize proxy", "err", err)
+		os.Exit(1)
 	}
 
 	// 3. Setup Internal Stats Endpoint
@@ -68,6 +70,30 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(stats)
+	})
+
+	// Add Prometheus Metrics Endpoint
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		var mem runtime.MemStats
+		runtime.ReadMemStats(&mem)
+		stats := wr.GetStats()
+
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		fmt.Fprintf(w, "# HELP peakshield_active_requests Number of requests currently in-flight to backend\n")
+		fmt.Fprintf(w, "# TYPE peakshield_active_requests gauge\n")
+		fmt.Fprintf(w, "peakshield_active_requests %d\n", stats.ActiveRequests)
+
+		fmt.Fprintf(w, "# HELP peakshield_queue_depth Number of requests waiting in queue\n")
+		fmt.Fprintf(w, "# TYPE peakshield_queue_depth gauge\n")
+		fmt.Fprintf(w, "peakshield_queue_depth %d\n", stats.QueueDepth)
+
+		fmt.Fprintf(w, "# HELP peakshield_goroutines Number of active goroutines\n")
+		fmt.Fprintf(w, "# TYPE peakshield_goroutines gauge\n")
+		fmt.Fprintf(w, "peakshield_goroutines %d\n", runtime.NumGoroutine())
+
+		fmt.Fprintf(w, "# HELP peakshield_alloc_bytes Bytes allocated and still in use\n")
+		fmt.Fprintf(w, "# TYPE peakshield_alloc_bytes gauge\n")
+		fmt.Fprintf(w, "peakshield_alloc_bytes %d\n", mem.Alloc)
 	})
 
 	// Rate Limiter wrapper
@@ -106,27 +132,29 @@ func main() {
 	}
 
 	// 6. Graceful Shutdown Setup
-	stopChan := make(chan os.Signal, 1)
-	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
-
 	go func() {
-		log.Printf("PeakShield active and listening on %s (Target Backend: %s)", cfg.ListenAddr, cfg.TargetURL)
+		slog.Info("PeakShield active and listening", "listenAddr", cfg.ListenAddr, "targetURL", cfg.TargetURL)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server error: %v", err)
+			slog.Error("Server error", "err", err)
+			os.Exit(1)
 		}
 	}()
 
 	// Wait for OS termination signal (SIGINT/SIGTERM)
+	stopChan := make(chan os.Signal, 1)
+	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
 	<-stopChan
-	log.Println("\nReceived termination signal. Shutting down PeakShield gracefully...")
+
+	slog.Info("Received termination signal. Shutting down PeakShield gracefully...")
 
 	// 15-second grace period for in-flight requests and waiting room to drain
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Fatalf("Graceful shutdown failed: %v", err)
+		slog.Error("Graceful shutdown failed", "err", err)
+		os.Exit(1)
 	}
 
-	log.Println("PeakShield exited safely.")
+	slog.Info("PeakShield exited safely.")
 }

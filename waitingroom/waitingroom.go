@@ -84,7 +84,7 @@ package waitingroom
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -299,7 +299,7 @@ func (wr *WaitingRoom) Middleware(next http.Handler) http.Handler {
 			// Forwarding a dead request wastes a precious backend slot and returns
 			// a connection write error — serve nobody, waste a backend thread.
 			if r.Context().Err() != nil {
-				log.Printf("[waitingroom] admitted_but_disconnected path=%s", r.URL.Path)
+				slog.Warn("admitted_but_disconnected", "path", r.URL.Path)
 				// Pass this slot to the next live waiter. Use a goroutine to avoid
 				// blocking the current goroutine's cleanup path.
 				go wr.signalNext()
@@ -315,7 +315,7 @@ func (wr *WaitingRoom) Middleware(next http.Handler) http.Handler {
 			// so that the decrement in releaseSlot() is always balanced.
 			defer wr.releaseSlot()
 
-			log.Printf("[waitingroom] queue_admission pos=%d path=%s", pos, r.URL.Path)
+			slog.Info("queue_admission", "pos", pos, "path", r.URL.Path)
 			next.ServeHTTP(w, r)
 
 		case <-time.After(wr.cfg.QueueTimeout):
@@ -330,8 +330,7 @@ func (wr *WaitingRoom) Middleware(next http.Handler) http.Handler {
 			//
 			// We do NOT decrement queueDepth here because the ticket is still
 			// in the queue. drainTicket() decrements it when the slot arrives.
-			log.Printf("[waitingroom] queue_timeout pos=%d path=%s after=%s",
-				pos, r.URL.Path, wr.cfg.QueueTimeout)
+			slog.Warn("queue_timeout", "pos", pos, "path", r.URL.Path, "after", wr.cfg.QueueTimeout)
 			go wr.drainTicket(ticket)
 			wr.serveWaitPage(w, r, pos, modeTimeout)
 
@@ -342,7 +341,7 @@ func (wr *WaitingRoom) Middleware(next http.Handler) http.Handler {
 			// tab close, mobile OS killed the app in the background, timeout on
 			// the client side). Same ticket-in-queue situation as Event 2.
 			// Spawn drainTicket to conserve the eventual slot signal.
-			log.Printf("[waitingroom] client_disconnect_while_queued pos=%d path=%s", pos, r.URL.Path)
+			slog.Warn("client_disconnect_while_queued", "pos", pos, "path", r.URL.Path)
 			go wr.drainTicket(ticket)
 			// No response to write — the client connection is gone.
 		}
@@ -455,8 +454,7 @@ func (wr *WaitingRoom) drainTicket(ticket chan struct{}) {
 		// Safety valve: backend may be completely down (no completions ever).
 		// Clean up and exit to prevent goroutine leak.
 		atomic.AddInt64(&wr.queueDepth, -1)
-		log.Printf("[waitingroom] drainTicket: safety_timeout reached after %s — backend may be unreachable",
-			safetyWindow)
+		slog.Error("drainTicket: safety_timeout reached — backend may be unreachable", "after", safetyWindow)
 	}
 }
 
@@ -534,8 +532,7 @@ func (wr *WaitingRoom) serveWaitPage(w http.ResponseWriter, r *http.Request, pos
 
 	_, _ = w.Write([]byte(pageBody))
 
-	log.Printf("[waitingroom] wait_page_served mode=%d pos=%d path=%s body_bytes=%d",
-		mode, pos, r.URL.Path, len(pageBody))
+	slog.Info("wait_page_served", "mode", mode, "pos", pos, "path", r.URL.Path, "body_bytes", len(pageBody))
 }
 
 // estimateWait computes an approximate wait time in seconds for a given queue

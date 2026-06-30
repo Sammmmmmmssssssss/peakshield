@@ -48,7 +48,7 @@ package ratelimiter
 import (
 	"context"
 	"hash/fnv"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -422,15 +422,15 @@ func (l *Limiter) shardFor(ip string) *shard {
 //     goroutine from leaking if the server stops.
 func (l *Limiter) gcLoop(ctx context.Context) {
 	ticker := time.NewTicker(gcInterval)
+	// Fire up the background GC goroutine.
+	slog.Info("ratelimiter GC goroutine started")
+
+	// Stop the GC and release resources if the context is cancelled.
+	defer slog.Info("ratelimiter GC goroutine stopping on context cancellation")
 	defer ticker.Stop()
-
-	log.Println("[ratelimiter] GC goroutine started")
-
 	for {
 		select {
 		case <-ctx.Done():
-			// Server is shutting down. Stop the ticker (already deferred) and exit.
-			log.Println("[ratelimiter] GC goroutine stopping on context cancellation")
 			return
 		case <-ticker.C:
 			l.runGC()
@@ -516,6 +516,6 @@ func (l *Limiter) runGC() {
 	}
 
 	if totalEvicted > 0 {
-		log.Printf("[ratelimiter] GC sweep complete: evicted %d stale IP buckets", totalEvicted)
+		slog.Info("ratelimiter GC sweep complete", "evicted", totalEvicted)
 	}
 }
