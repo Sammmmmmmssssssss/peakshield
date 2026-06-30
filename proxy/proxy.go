@@ -28,7 +28,6 @@
 package proxy
 
 import (
-	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
