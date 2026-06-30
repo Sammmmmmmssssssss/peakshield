@@ -69,7 +69,7 @@ PeakShield is designed for extreme memory efficiency. Here is an example snapsho
 ### Installation
 
 ```bash
-git clone https://github.com/yourusername/peakshield.git
+git clone https://github.com/Sammmmmmmssssssss/peakshield.git
 cd peakshield
 go build -o peakshield
 ```
