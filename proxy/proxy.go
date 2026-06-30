@@ -30,6 +30,7 @@ package proxy
 import (
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -203,7 +204,13 @@ func New(cfg *config.Config) (*ReverseProxy, error) {
 		// Set 1 second below BackendTimeout so per-request context deadline wins.
 		// This ensures writeError() runs (structured JSON) rather than the
 		// transport generating a raw network error string.
-		ResponseHeaderTimeout: cfg.BackendTimeout - time.Second,
+		// Guard against negative values when BackendTimeout is very small (e.g. in tests).
+		ResponseHeaderTimeout: func() time.Duration {
+			if cfg.BackendTimeout > time.Second {
+				return cfg.BackendTimeout - time.Second
+			}
+			return 0 // disabled; http.Client.Timeout acts as the only backstop
+		}(),
 
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
@@ -276,18 +283,28 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Classify the error before responding.
 		//
-		// Case A — context cancelled: the client disconnected before the backend
-		// responded (browser tab closed, mobile network drop, OS-level kill).
-		// There is nothing to write — the connection is gone. Log and return.
-		//
-		// Case B — genuine backend error: network unreachable, connection refused,
-		// TLS failure, ResponseHeaderTimeout fired, etc. Write structured JSON.
+		// Case A — client disconnected: r.Context() is cancelled because the
+		// client closed the connection before the backend responded. Nothing to
+		// write — the connection is gone. Log and return silently.
 		if r.Context().Err() != nil {
 			slog.Warn("client_disconnect_before_response", "method", r.Method, "path", r.URL.Path)
 			return
 		}
+
+		// Case B — backend timeout: http.Client.Timeout or Transport's
+		// ResponseHeaderTimeout fired. url.Error.Timeout() returns true for
+		// both cases. RFC 7231 §6.6.5 mandates 504 Gateway Timeout for this.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) && urlErr.Timeout() {
+			slog.Error("backend_timeout", "method", r.Method, "path", r.URL.Path, "backend", p.cfg.TargetURL, "err", err)
+			p.writeError(w, r, p.cfg.TargetURL, http.StatusGatewayTimeout, "backend_timeout", "upstream server did not respond within the deadline")
+			return
+		}
+
+		// Case C — genuine backend error: connection refused, DNS failure,
+		// TLS handshake failure, etc. Return 502 Bad Gateway.
 		slog.Error("backend_error", "method", r.Method, "path", r.URL.Path, "backend", p.cfg.TargetURL, "err", err)
-		p.writeError(w, r, p.cfg.TargetURL, http.StatusBadGateway, "backend_error", "upstream server did not respond in time")
+		p.writeError(w, r, p.cfg.TargetURL, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
 
