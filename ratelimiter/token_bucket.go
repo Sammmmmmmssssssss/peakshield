@@ -49,7 +49,6 @@ import (
 	"context"
 	"hash/fnv"
 	"log/slog"
-	"math"
 	"sync"
 	"sync/atomic"
 	"time"

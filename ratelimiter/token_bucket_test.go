@@ -2,6 +2,8 @@ package ratelimiter
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -65,7 +67,8 @@ func TestLimiter_GCStress(t *testing.T) {
 	defer cancel()
 
 	cfg := &config.Config{
-		PeakShieldLimit: 100,
+		RateLimit: 1000.0,
+		BurstSize: 50,
 	}
 	l := New(ctx, cfg)
 
