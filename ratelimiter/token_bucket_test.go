@@ -56,3 +56,49 @@ func BenchmarkTokenBucket_Parallel(b *testing.B) {
 		}
 	})
 }
+
+// TestLimiter_GCStress runs a concurrent stress test that exercises the GC
+// alongside Allow() to verify that the atomic.Int64 fix for lastSeenNano
+// prevents any data races.
+func TestLimiter_GCStress(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cfg := &config.Config{
+		PeakShieldLimit: 100,
+	}
+	l := New(ctx, cfg)
+
+	var wg sync.WaitGroup
+	ipCount := 50
+	goroutinesPerIP := 10
+
+	// 1. Start concurrent Allow() requests.
+	for i := 0; i < ipCount; i++ {
+		ip := fmt.Sprintf("192.168.0.%d", i)
+		for j := 0; j < goroutinesPerIP; j++ {
+			wg.Add(1)
+			go func(ip string) {
+				defer wg.Done()
+				for k := 0; k < 100; k++ {
+					l.Allow(ip)
+					// Tiny sleep to interleave with GC
+					time.Sleep(time.Microsecond)
+				}
+			}(ip)
+		}
+	}
+
+	// 2. Concurrently run the GC sweep repeatedly.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			// runGC scans all buckets and deletes idle ones
+			l.runGC()
+			time.Sleep(10 * time.Microsecond)
+		}
+	}()
+
+	wg.Wait()
+}

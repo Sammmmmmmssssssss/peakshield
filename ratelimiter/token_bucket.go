@@ -49,7 +49,9 @@ import (
 	"context"
 	"hash/fnv"
 	"log/slog"
+	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"peakshield/config"
@@ -98,7 +100,7 @@ const (
 //	sync.Mutex      (8 bytes)  — lock state word
 //	float64 tokens  (8 bytes)  — available token count
 //	int64 lastRefillNano (8 bytes) — timestamp of last refill
-//	int64 lastSeenNano   (8 bytes) — timestamp of last access (for GC)
+//	atomic.Int64 lastSeenNano (8 bytes) — timestamp of last access (for GC)
 //	                   (0 bytes padding — already 32B, naturally aligned)
 //
 // Total per-bucket allocation: 32 bytes of struct fields + ~48 bytes of
@@ -132,13 +134,12 @@ type bucket struct {
 	// lastSeenNano is the UnixNano timestamp of the most recent Allow() call.
 	// Updated inside bucket.mu during consume(). The GC goroutine reads this
 	// WITHOUT holding bucket.mu (to avoid acquiring two locks simultaneously).
-	// This is safe because:
-	//   1. lastSeenNano is written only inside bucket.mu (single writer).
-	//   2. int64 writes on arm64 are naturally atomic (aligned store = single STR).
-	//   3. The GC only uses lastSeenNano to decide whether to evict; a slightly
+	// This is safe from data races because we use atomic.Int64.
+	//   1. lastSeenNano is written only inside bucket.mu (single logical writer).
+	//   2. The GC only uses lastSeenNano to decide whether to evict; a slightly
 	//      stale read at worst skips evicting a bucket for one GC cycle, which
 	//      is harmless (the bucket will be evicted on the next cycle).
-	lastSeenNano int64
+	lastSeenNano atomic.Int64
 }
 
 // shard is one independent partition of the global IP→bucket map.
@@ -323,8 +324,8 @@ func (l *Limiter) getOrCreate(s *shard, ip string) *bucket {
 	b := &bucket{
 		tokens:         l.burstSize,
 		lastRefillNano: now,
-		lastSeenNano:   now,
 	}
+	b.lastSeenNano.Store(now)
 	s.buckets[ip] = b
 	return b
 }
@@ -376,8 +377,9 @@ func (l *Limiter) consume(b *bucket) bool {
 	}
 
 	// Update liveness timestamp for the GC. Done inside bucket.mu so no
-	// separate atomic store is needed — the mutex provides the memory barrier.
-	b.lastSeenNano = now
+	// separate logic race is possible — the atomic Store ensures no data race
+	// with the background GC reading it.
+	b.lastSeenNano.Store(now)
 
 	// ── Token consumption ─────────────────────────────────────────────────────
 	if b.tokens >= 1.0 {
@@ -479,12 +481,11 @@ func (l *Limiter) runGC() {
 		for ip, b := range s.buckets {
 			// Read b.lastSeenNano WITHOUT acquiring b.mu.
 			// Safety justification (see field comment in bucket struct):
-			//   - lastSeenNano is only written inside b.mu.
-			//   - int64 aligned stores on arm64 are single-instruction atomic.
+			//   - lastSeenNano is updated using atomic.Int64.
 			//   - The GC doesn't need a guaranteed-current value: a read that is
 			//     one cache-coherence cycle stale (<<1µs) is perfectly safe. At
 			//     worst, we miss evicting a bucket this cycle and catch it next cycle.
-			if b.lastSeenNano < cutoff {
+			if b.lastSeenNano.Load() < cutoff {
 				toEvict = append(toEvict, ip)
 			}
 		}
@@ -502,7 +503,7 @@ func (l *Limiter) runGC() {
 			// Re-validate: in the window between Phase 1 (RUnlock) and Phase 2
 			// (Lock), the IP may have received a new request, updating lastSeenNano.
 			// If so, the bucket is now active — do NOT evict it.
-			if b, ok := s.buckets[ip]; ok && b.lastSeenNano < cutoff {
+			if b, ok := s.buckets[ip]; ok && b.lastSeenNano.Load() < cutoff {
 				delete(s.buckets, ip)
 				totalEvicted++
 			}

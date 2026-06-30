@@ -66,9 +66,9 @@ If a client disconnects while in the queue, its ticket remains in the queue. Whe
 
 During extreme traffic, egress bandwidth can bottleneck before CPU or Memory. 
 
-If the backend serves a 5MB HTML page with images and scripts, the HTML Stripper dynamically intercepts the `text/html` response. It uses Go's `golang.org/x/net/html` tokenizer to parse the raw byte stream as it arrives. 
+If the backend serves a 5MB HTML page with images and scripts, the HTML Stripper dynamically intercepts the `text/html` response. It uses a custom hand-rolled finite state machine (FSM) to parse the raw byte stream as it arrives, maintaining our strict zero-dependency philosophy (no `golang.org/x/net/html` required).
 
-It skips any `<img>`, `<script>`, or `<style>` tags, dropping them from the stream before they are sent to the client. We intentionally avoid Regex because Regex engines scale poorly and are vulnerable to ReDoS attacks on malformed HTML. The tokenizer is an O(N), zero-allocation finite state machine.
+It skips any `<img>`, `<script>`, or `<style>` tags, dropping them from the stream before they are sent to the client. We intentionally avoid Regex because Regex engines scale poorly and are vulnerable to ReDoS attacks on malformed HTML. The hand-rolled FSM tokenizer is an O(N) scanner with virtually zero allocations per request.
 
 ---
 
