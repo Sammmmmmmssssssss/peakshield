@@ -58,3 +58,26 @@ func TestStripHTML(t *testing.T) {
 		})
 	}
 }
+
+// FuzzStripper tests the hand-rolled HTML tokenizer against arbitrary byte
+// sequences to ensure it never panics, hangs, or reads out of bounds, no matter
+// how malformed the input is.
+func FuzzStripper(f *testing.F) {
+	// Add seeds of valid HTML
+	f.Add([]byte(`<html><head><script>alert(1);</script></head><body>Hello</body></html>`))
+	f.Add([]byte(`<html><head><link rel="stylesheet" href="style.css"></head><body>Hi</body></html>`))
+	// Add seeds of heavily malformed tags
+	f.Add([]byte(`<script`))
+	f.Add([]byte(`< img src=`))
+	f.Add([]byte(`<!-- unclosed comment`))
+	f.Add([]byte(`<script>  < / script >`))
+	f.Add([]byte(`<!DOCTYPE html><html><body><h1>Title</h1></body></html>`))
+
+	f.Fuzz(func(t *testing.T, input []byte) {
+		out := bytes.NewBuffer(nil)
+		// We don't care about the output contents here, only that stripHTML
+		// does not panic, hang (infinite loop), or crash.
+		// If it panics, the fuzzer will catch it and fail the test.
+		stripHTML(input, out)
+	})
+}

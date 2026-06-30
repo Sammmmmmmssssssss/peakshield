@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -47,10 +48,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 3. Setup Internal Stats Endpoint
-	mux := http.NewServeMux()
+	// 3. Setup Internal Stats Endpoint (Internal Port)
+	metricsMux := http.NewServeMux()
 	
-	mux.HandleFunc("/__peakshield/stats", func(w http.ResponseWriter, r *http.Request) {
+	metricsMux.HandleFunc("/__peakshield/stats", func(w http.ResponseWriter, r *http.Request) {
 		var mem runtime.MemStats
 		runtime.ReadMemStats(&mem)
 
@@ -73,7 +74,7 @@ func main() {
 	})
 
 	// Add Prometheus Metrics Endpoint
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+	metricsMux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		var mem runtime.MemStats
 		runtime.ReadMemStats(&mem)
 		stats := wr.GetStats()
@@ -111,18 +112,19 @@ func main() {
 		})
 	}
 
-	// 4. Build Middleware Chain for the Proxy
+	// 4. Build Middleware Chain for the Proxy (Public Port)
+	mux := http.NewServeMux()
 	proxyHandler := middleware.Chain(prx,
 		rlMiddleware,
 		wr.Middleware,
 		st.Middleware,
 	)
 
-	// Forward all other traffic to the proxy chain
+	// Forward all traffic to the proxy chain
 	mux.Handle("/", proxyHandler)
 
-	// 5. Configure Global HTTP Server
-	server := &http.Server{
+	// 5. Configure Global HTTP Servers
+	proxyServer := &http.Server{
 		Addr:    cfg.ListenAddr,
 		Handler: mux,
 		// Explicit timeouts to prevent Slowloris attacks and connection leaks
@@ -131,11 +133,28 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
+	metricsServer := &http.Server{
+		Addr:    cfg.MetricsListenAddr,
+		Handler: metricsMux,
+		// Short timeouts for internal telemetry server
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
 	// 6. Graceful Shutdown Setup
 	go func() {
 		slog.Info("PeakShield active and listening", "listenAddr", cfg.ListenAddr, "targetURL", cfg.TargetURL)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("Server error", "err", err)
+		if err := proxyServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("Proxy server error", "err", err)
+			os.Exit(1)
+		}
+	}()
+
+	go func() {
+		slog.Info("PeakShield metrics listening", "metricsAddr", cfg.MetricsListenAddr)
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("Metrics server error", "err", err)
 			os.Exit(1)
 		}
 	}()
@@ -145,16 +164,30 @@ func main() {
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
 	<-stopChan
 
-	slog.Info("Received termination signal. Shutting down PeakShield gracefully...")
+	slog.Info("Received termination signal. Shutting down servers gracefully...")
 
 	// 15-second grace period for in-flight requests and waiting room to drain
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
 
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		slog.Error("Graceful shutdown failed", "err", err)
-		os.Exit(1)
-	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		if err := proxyServer.Shutdown(shutdownCtx); err != nil {
+			slog.Error("Proxy graceful shutdown failed", "err", err)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+			slog.Error("Metrics graceful shutdown failed", "err", err)
+		}
+	}()
+
+	wg.Wait()
 
 	slog.Info("PeakShield exited safely.")
 }

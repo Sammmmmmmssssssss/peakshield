@@ -22,6 +22,10 @@ type Config struct {
 	// Format: "[host]:port". Default ":8080" listens on all interfaces.
 	ListenAddr string
 
+	// MetricsListenAddr is the TCP address for the internal telemetry server.
+	// Default "127.0.0.1:9090" restricts access to localhost for security.
+	MetricsListenAddr string
+
 	// TargetURL is the full URL prefix of the upstream legacy backend.
 	// Every incoming request path is appended to this base URL.
 	// Example: "http://legacy.gov.in:9090"
@@ -123,6 +127,7 @@ func Load() (*Config, error) {
 
 	// ── Network ──────────────────────────────────────────────────────────────
 	cfg.ListenAddr = envString("PEAKSHIELD_LISTEN", ":8080")
+	cfg.MetricsListenAddr = envString("PEAKSHIELD_METRICS_LISTEN", "127.0.0.1:9090")
 	cfg.TargetURL = envString("PEAKSHIELD_TARGET", "http://localhost:9090")
 	if cfg.InsecureSkipVerify, err = envBool("PEAKSHIELD_INSECURE_SKIP_VERIFY", false); err != nil {
 		return nil, fmt.Errorf("PEAKSHIELD_INSECURE_SKIP_VERIFY: %w", err)
