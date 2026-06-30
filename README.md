@@ -17,6 +17,17 @@ Built in pure Go with **zero external dependencies** (no Redis, no Kafka, no Ngi
 
 ---
 
+## 📚 Documentation
+
+PeakShield is fully documented for production operations:
+
+- **[Architecture & Design](file:///Users/samiranmishra/Documents/antigravity/gallant-hawking/peakshield/DESIGN.md)** - Deep dive into how the internals work.
+- **[Deployment Guide](file:///Users/samiranmishra/Documents/antigravity/gallant-hawking/peakshield/docs/DEPLOYMENT.md)** - systemd, Docker Swarm, and Kubernetes (Helm).
+- **[Performance Tuning](file:///Users/samiranmishra/Documents/antigravity/gallant-hawking/peakshield/docs/PERFORMANCE.md)** - OS sysctl tuning and Go runtime configuration.
+- **[Troubleshooting Runbook](file:///Users/samiranmishra/Documents/antigravity/gallant-hawking/peakshield/docs/TROUBLESHOOTING.md)** - On-call guide for metrics and logs.
+
+---
+
 ## 🏗️ Architecture
 
 ```mermaid
