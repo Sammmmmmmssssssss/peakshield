@@ -87,7 +87,7 @@ cd peakshield
 go build -o peakshield
 ```
 
-**Free & Open Source** - MIT License. Use it however you want!
+**Free & Open Source** - GNU GPLv3 License. Use it however you want!
 
 ### Option 2: Download Ready-to-Use Binary
 
@@ -154,7 +154,7 @@ export PEAKSHIELD_MAX_CONCURRENT="500"
 **I'm a student developer, and I built this to solve a real problem!**
 
 ### Free Version (Open Source)
-- ✅ Full source code - MIT Licensed
+- ✅ Full source code - GNU GPLv3 Licensed
 - ✅ Zero external dependencies
 - ✅ Deploy anywhere
 - ✅ Community support on GitHub
@@ -218,7 +218,7 @@ PeakShield is specifically built for:
 ✅ Production-Ready - Proven in real-world scenarios
 ✅ Easy to Deploy - Single binary, no compilation
 ✅ RFC Compliant - Handles HTTP properly
-✅ Open Source - MIT License, inspect the code
+✅ Open Source - GNU GPLv3 License, inspect the code
 ✅ Honest Approach - No hidden costs or features
 ✅ Built by a Student - I understand startup budgets!
 ```
@@ -256,7 +256,7 @@ PeakShield is specifically built for:
 
 ## 📄 License
 
-MIT License - See [LICENSE](./LICENSE) for details.
+GNU GPLv3 License - See [LICENSE](./LICENSE) for details.
 
 **tl;dr:** Use it however you want, commercial or personal. Just give credit.
 
