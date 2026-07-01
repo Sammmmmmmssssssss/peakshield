@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  peakshield:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - PEAKSHIELD_LISTEN=:8080
+      - PEAKSHIELD_TARGET=http://backend:80
+      - PEAKSHIELD_MAX_CONCURRENT=50
+      - PEAKSHIELD_QUEUE_SIZE=500
+      - PEAKSHIELD_RATE_LIMIT=100.0
+      - PEAKSHIELD_BURST=200
+    depends_on:
+      - backend
+
+  # Mock backend (whoami) just for testing the composition
+  backend:
+    image: traefik/whoami

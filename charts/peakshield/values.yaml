@@ -1,0 +1,30 @@
+replicaCount: 1
+
+image:
+  repository: peakshield
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "1.0.0"
+
+service:
+  type: ClusterIP
+  proxyPort: 8080
+  metricsPort: 9090
+
+# Environment variables for PeakShield
+config:
+  targetURL: "http://legacy-backend:9090"
+  rateLimit: "100"
+  burstSize: "50"
+  maxConcurrent: "1000"
+  waitingRoomSize: "5000"
+  stripThreshold: "1024"
+  insecureSkipVerify: "false"
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 32Mi

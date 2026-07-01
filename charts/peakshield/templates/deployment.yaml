@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-peakshield
+  labels:
+    app: peakshield
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: peakshield
+  template:
+    metadata:
+      labels:
+        app: peakshield
+    spec:
+      containers:
+        - name: peakshield
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-config
+          ports:
+            - name: proxy
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

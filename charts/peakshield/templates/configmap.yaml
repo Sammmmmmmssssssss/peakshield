@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+data:
+  PEAKSHIELD_TARGET: {{ .Values.config.targetURL | quote }}
+  PEAKSHIELD_RATE_LIMIT: {{ .Values.config.rateLimit | quote }}
+  PEAKSHIELD_BURST_SIZE: {{ .Values.config.burstSize | quote }}
+  PEAKSHIELD_MAX_CONCURRENT: {{ .Values.config.maxConcurrent | quote }}
+  PEAKSHIELD_WAITING_ROOM_SIZE: {{ .Values.config.waitingRoomSize | quote }}
+  PEAKSHIELD_STRIP_THRESHOLD: {{ .Values.config.stripThreshold | quote }}
+  PEAKSHIELD_INSECURE_SKIP_VERIFY: {{ .Values.config.insecureSkipVerify | quote }}
